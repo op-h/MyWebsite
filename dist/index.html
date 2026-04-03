@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hussein Dheyaa (oph) | CyberSec Portfolio</title>
+    <meta name="description" content="Hussein Dheyaa (oph) — Cybersecurity student specializing in SOC Analysis, Threat Hunting, and Digital Forensics.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <!-- Locomotive Scroll CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/locomotive-scroll@4.1.4/dist/locomotive-scroll.min.css">
+
+  <link rel="stylesheet" crossorigin href="/MyWebsite/assets/index-CorYWYJm.css">
+</head>
+<body>
+
+    <canvas id="webgl-canvas"></canvas>
+
+    <div class="noise-overlay"></div>
+
+    <div id="main-container" data-scroll-container>
+        
+        <!-- Hero Section -->
+        <section class="section hero" data-scroll-section>
+            <div class="content glass-card hero-card">
+                <div class="terminal-header">
+                    <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+                    <span class="terminal-title">terminal</span>
+                </div>
+                <div class="terminal-line">
+                    <span class="prompt">root@oph:~$</span> <span id="hero-typing"></span><span class="cursor">_</span>
+                </div>
+                <h1 data-scroll data-scroll-speed="1" class="glitch-text" data-text="HUSSEIN DHEYAA">HUSSEIN DHEYAA</h1>
+                <p class="nickname" data-scroll data-scroll-speed="0.8">aka <span class="highlight">oph</span></p>
+                <h3 data-scroll data-scroll-speed="0.5" class="subtitle">Threat Hunter & SOC Analyst</h3>
+                <p data-scroll data-scroll-speed="0.3" class="college-info">Electrical and Electronic Technology</p>
+            </div>
+            <div class="scroll-indicator" data-scroll data-scroll-speed="-0.5">
+                <span>Scroll to Initialize</span>
+                <div class="mouse-icon"></div>
+            </div>
+        </section>
+
+        <!-- Certifications & Skills (SOC Analyst) -->
+        <section class="section soc-analyst" id="soc-section" data-scroll-section>
+            <div class="content glass-card large-card">
+                <div class="section-badge">01. Monitor & Detect</div>
+                <h2>SOC Analyst</h2>
+                <p>Monitoring, detecting, and alerting on security incidents using advanced SIEM and endpoint strategies.</p>
+                
+                <div class="cert-grid">
+                    <div class="cert-item">TryHackMe SOC1/SOC2</div>
+                    <div class="cert-item">THM Adv Endpoint</div>
+                    <div class="cert-item">Cisco CCST</div>
+                    <div class="cert-item">CCEP</div>
+                    <div class="cert-item">ISC2 CC</div>
+                    <div class="cert-item">SAL1</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Threat Hunter & Digital Forensics -->
+        <section class="section forensics" data-scroll-section>
+            <div class="content glass-card large-card">
+                <div class="section-badge">02. Analyze & Respond</div>
+                <h2>Threat Hunter & Forensics</h2>
+                <p>Proactively discovering hidden threats and analyzing evidence from compromised digital assets.</p>
+                
+                <div class="cert-grid">
+                    <div class="cert-item">eJPT</div>
+                    <div class="cert-item">eCIR</div>
+                    <div class="cert-item">eCTHP</div>
+                    <div class="cert-item">CS50</div>
+                    <div class="cert-item">CCNA</div>
+                    <div class="cert-item">SSCP</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Contact Links -->
+        <section class="section links" data-scroll-section>
+            <div class="content glass-card">
+                <div class="section-badge">03. Target Acquired</div>
+                <h2>Establish Connection</h2>
+                <div class="social-links">
+                    <a href="mailto:your_email@example.com" class="cyber-btn" id="btn-email">Email</a>
+                    <a href="https://linkedin.com/in/" class="cyber-btn" id="btn-linkedin" target="_blank">LinkedIn</a>
+                    <a href="https://t.me/your_handle" class="cyber-btn" id="btn-telegram" target="_blank">Telegram</a>
+                    <a href="https://github.com/" class="cyber-btn" id="btn-github" target="_blank">GitHub</a>
+                    <a href="https://tryhackme.com/p/" class="cyber-btn" id="btn-thm" target="_blank">TryHackMe</a>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Scripts: CDN loaded as regular scripts, then app.js as regular (NOT module) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/TextPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/locomotive-scroll@4.1.4/dist/locomotive-scroll.min.js"></script>
+    
+    <script src="/MyWebsite/app.js"></script>
+</body>
+</html>
