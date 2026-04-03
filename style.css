@@ -234,13 +234,24 @@ p {
 .cert-item {
     background: rgba(0, 85, 255, 0.08);
     border: 1px solid rgba(0, 85, 255, 0.25);
-    padding: 0.8rem 0.5rem;
+    padding: 1.2rem 1rem;
     border-radius: 8px;
     text-align: center;
     font-size: 0.9rem;
     color: var(--text-main);
     transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-decoration: none;
+    line-height: 1.4;
+    min-height: 80px;
+}
+
+a.cert-item {
+    cursor: pointer;
 }
 
 .cert-item:hover {
