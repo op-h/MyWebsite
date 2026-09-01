@@ -1,471 +1,313 @@
-// ============================================
-// Cybersecurity Portfolio — Hussein Dheyaa (oph)
-// Three.js + GSAP + Locomotive Scroll
-// Mobile-optimized with adaptive quality
-// ============================================
+/* ============================================================================
+ * Hussein Dheyaa (oph) — portfolio runtime
+ *
+ * Zero dependencies. Previously this page pulled Three.js, GSAP, ScrollTrigger,
+ * TextPlugin and Locomotive Scroll from two CDNs — 177 KB gzipped of
+ * render-blocking JavaScript for a decorative background and some reveals.
+ * Everything below replaces that with ~7 KB of plain JS.
+ *
+ * Performance rules this file obeys:
+ *   - One rAF loop, and it stops whenever the canvas is offscreen or the tab
+ *     is hidden. An idle tab costs nothing.
+ *   - Link strokes are quantised into a few alpha buckets so the whole network
+ *     draws in a handful of canvas calls instead of one per edge.
+ *   - Reveal animations are CSS transitions toggled by IntersectionObserver.
+ *     Nothing is driven from the scroll event, so scrolling stays on the
+ *     compositor.
+ *   - Every animation is skipped outright under prefers-reduced-motion.
+ * ========================================================================== */
 
 (function () {
-    "use strict";
+  "use strict";
 
-    // =============================
-    // 0. Device Detection & Config
-    // =============================
-    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-        || window.innerWidth < 768;
-    const isLowEnd = isMobile && (navigator.hardwareConcurrency || 4) <= 4;
-    const dpr = Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2);
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // Adaptive counts — reduce particles on mobile for smooth 60fps
-    const CFG = {
-        nodeCount:      isMobile ? 20 : 60,
-        connectionDist: isMobile ? 3.0 : 3.5,
-        matrixCount:    isMobile ? 150 : 500,
-        hexFloorCount:  isMobile ? 250 : 800,
-        dataCount:      isMobile ? 100 : 300,
-        enablePulse:    !isLowEnd,
-        enableMouseParallax: !isMobile
-    };
+  /* ------------------------------------------------------------------ *
+   * 1. Background: node network on a 2D canvas
+   * ------------------------------------------------------------------ */
+  function background() {
+    var canvas = document.getElementById("bg-canvas");
+    if (!canvas || reduceMotion) return;
 
-    // =============================
-    // 1. Locomotive Scroll
-    // =============================
-    const scrollContainer = document.querySelector('#main-container');
+    var ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) return;
 
-    const locoScroll = new LocomotiveScroll({
-        el: scrollContainer,
-        smooth: true,
-        multiplier: isMobile ? 1.0 : 0.7,
-        lerp: isMobile ? 0.08 : 0.04,
-        touchMultiplier: 2.5,
-        smartphone: { smooth: true, multiplier: 1.2 },
-        tablet: { smooth: true, multiplier: 1.0 }
-    });
+    var coarse = window.matchMedia("(pointer: coarse)").matches;
+    var small  = window.innerWidth < 768;
+    var lowEnd = (navigator.hardwareConcurrency || 4) <= 4;
 
-    // =============================
-    // 2. GSAP + ScrollTrigger Sync
-    // =============================
-    gsap.registerPlugin(ScrollTrigger, TextPlugin);
+    var COUNT     = small || lowEnd ? 26 : 46;
+    var LINK_DIST = small ? 130 : 165;
+    var DPR_CAP   = small ? 1.5 : 2;
+    // Alpha buckets for links. More buckets = smoother falloff, more draw
+    // calls. Four is indistinguishable from per-edge alpha at these opacities.
+    var BUCKETS   = 4;
 
-    locoScroll.on("scroll", ScrollTrigger.update);
+    var w = 0, h = 0, dpr = 1;
+    var nodes = [];
+    var pointer = { x: 0, y: 0, tx: 0, ty: 0, active: false };
+    var running = false, rafId = 0;
 
-    ScrollTrigger.scrollerProxy(scrollContainer, {
-        scrollTop(value) {
-            return arguments.length
-                ? locoScroll.scrollTo(value, { duration: 0, disableLerp: true })
-                : locoScroll.scroll.instance.scroll.y;
-        },
-        getBoundingClientRect() {
-            return { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight };
-        },
-        pinType: scrollContainer.style.transform ? "transform" : "fixed"
-    });
-
-    // =============================
-    // 3. Hero Intro Animations
-    // =============================
-    const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
-
-    tl.from(".hero .glass-card", { y: 60, opacity: 0, duration: 1 }, 0.2)
-      .to("#hero-typing", { duration: 2.5, text: "./execute_portfolio.sh", ease: "none" }, 0.6)
-      .from(".nickname", { y: 20, opacity: 0, duration: 0.6 }, 1)
-      .from(".subtitle", { y: 20, opacity: 0, duration: 0.6 }, 1.15)
-      .from(".college-info", { y: 20, opacity: 0, duration: 0.6 }, 1.3);
-
-    // =============================
-    // 4. Three.js Scene Setup
-    // =============================
-    const canvas = document.querySelector('#webgl-canvas');
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000000, isMobile ? 0.045 : 0.035);
-
-    const camera = new THREE.PerspectiveCamera(
-        75, window.innerWidth / window.innerHeight, 0.1, 1000
-    );
-    camera.position.set(0, 0, 7);
-
-    const renderer = new THREE.WebGLRenderer({
-        canvas: canvas,
-        alpha: true,
-        antialias: !isMobile,
-        powerPreference: "high-performance"
-    });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(dpr);
-
-    // --- Mouse tracking for parallax (desktop only) ---
-    const mouse = { x: 0, y: 0, targetX: 0, targetY: 0 };
-    if (CFG.enableMouseParallax) {
-        window.addEventListener('mousemove', (e) => {
-            mouse.targetX = (e.clientX / window.innerWidth - 0.5) * 2;
-            mouse.targetY = (e.clientY / window.innerHeight - 0.5) * 2;
+    function seed() {
+      nodes.length = 0;
+      for (var i = 0; i < COUNT; i++) {
+        nodes.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: (Math.random() - 0.5) * 0.16,
+          vy: (Math.random() - 0.5) * 0.16,
+          r: Math.random() * 1.4 + 0.9,
+          // Each node breathes on its own phase so the field never pulses in
+          // lockstep.
+          phase: Math.random() * Math.PI * 2
         });
+      }
     }
 
-    // ===========================================
-    // 5. CYBER OBJECTS
-    // ===========================================
-
-    // --- A. Network Topology (nodes + connections) ---
-    const networkGroup = new THREE.Group();
-    scene.add(networkGroup);
-
-    const nodePositions = [];
-    const nodeGeo = new THREE.SphereGeometry(0.04, isMobile ? 6 : 8, isMobile ? 6 : 8);
-    const nodeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.8 });
-
-    for (let i = 0; i < CFG.nodeCount; i++) {
-        const x = (Math.random() - 0.5) * 16;
-        const y = (Math.random() - 0.5) * 12;
-        const z = (Math.random() - 0.5) * 10 - 3;
-        nodePositions.push(new THREE.Vector3(x, y, z));
-
-        const n = new THREE.Mesh(nodeGeo, nodeMat.clone());
-        n.position.set(x, y, z);
-        networkGroup.add(n);
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width  = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!nodes.length) seed();
     }
 
-    // Connect nearby nodes
-    const lineMat = new THREE.LineBasicMaterial({
-        color: 0x00ffcc, transparent: true, opacity: 0.06
-    });
-    for (let i = 0; i < CFG.nodeCount; i++) {
-        for (let j = i + 1; j < CFG.nodeCount; j++) {
-            if (nodePositions[i].distanceTo(nodePositions[j]) < CFG.connectionDist) {
-                const lg = new THREE.BufferGeometry().setFromPoints([nodePositions[i], nodePositions[j]]);
-                networkGroup.add(new THREE.Line(lg, lineMat));
-            }
+    function step(now) {
+      rafId = requestAnimationFrame(step);
+
+      var t = now * 0.001;
+      ctx.clearRect(0, 0, w, h);
+
+      if (pointer.active) {
+        pointer.x += (pointer.tx - pointer.x) * 0.045;
+        pointer.y += (pointer.ty - pointer.y) * 0.045;
+      }
+
+      var i, j, n;
+      for (i = 0; i < COUNT; i++) {
+        n = nodes[i];
+        n.x += n.vx;
+        n.y += n.vy;
+        // Wrap rather than bounce: bouncing makes the drift read as a loop.
+        if (n.x < -20) n.x = w + 20; else if (n.x > w + 20) n.x = -20;
+        if (n.y < -20) n.y = h + 20; else if (n.y > h + 20) n.y = -20;
+      }
+
+      // --- links, batched into BUCKETS paths -------------------------------
+      var paths = [];
+      for (i = 0; i < BUCKETS; i++) paths.push(null);
+
+      var maxSq = LINK_DIST * LINK_DIST;
+      for (i = 0; i < COUNT; i++) {
+        var a = nodes[i];
+        for (j = i + 1; j < COUNT; j++) {
+          var b = nodes[j];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var dSq = dx * dx + dy * dy;
+          if (dSq >= maxSq) continue;
+          var closeness = 1 - Math.sqrt(dSq) / LINK_DIST;
+          var bucket = Math.min(BUCKETS - 1, (closeness * BUCKETS) | 0);
+          var p = paths[bucket] || (paths[bucket] = new Path2D());
+          p.moveTo(a.x, a.y);
+          p.lineTo(b.x, b.y);
         }
-    }
+      }
 
-    // --- B. Central Shield (Icosahedron layers) ---
-    const shieldGroup = new THREE.Group();
-    scene.add(shieldGroup);
+      ctx.lineWidth = 1;
+      for (i = 0; i < BUCKETS; i++) {
+        if (!paths[i]) continue;
+        ctx.strokeStyle = "rgba(0, 255, 204, " + (0.03 + i * 0.035).toFixed(3) + ")";
+        ctx.stroke(paths[i]);
+      }
 
-    const shieldMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.1
-    });
-    const shield = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(2.0, 1), shieldMat
-    );
-    shieldGroup.add(shield);
+      // --- nodes, one fill for the whole field -----------------------------
+      var dots = new Path2D();
+      for (i = 0; i < COUNT; i++) {
+        n = nodes[i];
+        var r = n.r * (1 + Math.sin(t * 1.1 + n.phase) * 0.28);
+        dots.moveTo(n.x + r, n.y);
+        dots.arc(n.x, n.y, r, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = "rgba(0, 255, 204, 0.55)";
+      ctx.fill(dots);
 
-    const midMat = new THREE.MeshBasicMaterial({
-        color: 0x0066ff, wireframe: true, transparent: true, opacity: 0.06
-    });
-    const midShield = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(1.5, isMobile ? 1 : 2), midMat
-    );
-    shieldGroup.add(midShield);
-
-    const coreMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffcc, wireframe: false, transparent: true, opacity: 0.15
-    });
-    const core = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.6, 0), coreMat
-    );
-    shieldGroup.add(core);
-
-    // --- C. Scanning Rings ---
-    const segments = isMobile ? 64 : 128;
-
-    const ringMat1 = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.2 });
-    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(2.8, 0.015, 8, segments), ringMat1);
-    ring1.rotation.x = Math.PI / 2;
-    shieldGroup.add(ring1);
-
-    const ringMat2 = new THREE.MeshBasicMaterial({ color: 0x0055ff, transparent: true, opacity: 0.15 });
-    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(3.1, 0.01, 8, segments), ringMat2);
-    ring2.rotation.x = Math.PI / 3;
-    ring2.rotation.z = Math.PI / 5;
-    shieldGroup.add(ring2);
-
-    if (!isMobile) {
-        const ringMat3 = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.1 });
-        var ring3 = new THREE.Mesh(new THREE.TorusGeometry(3.5, 0.008, 8, segments), ringMat3);
-        ring3.rotation.x = Math.PI / 4;
-        ring3.rotation.z = -Math.PI / 3;
-        shieldGroup.add(ring3);
-    }
-
-    // --- D. Matrix Code Rain ---
-    const matrixPos = new Float32Array(CFG.matrixCount * 3);
-    const matrixSpeeds = new Float32Array(CFG.matrixCount);
-    for (let i = 0; i < CFG.matrixCount; i++) {
-        matrixPos[i * 3]     = (Math.random() - 0.5) * 20;
-        matrixPos[i * 3 + 1] = Math.random() * 16 - 8;
-        matrixPos[i * 3 + 2] = (Math.random() - 0.5) * 12 - 5;
-        matrixSpeeds[i] = 0.01 + Math.random() * 0.03;
-    }
-    const matrixGeo = new THREE.BufferGeometry();
-    matrixGeo.setAttribute('position', new THREE.BufferAttribute(matrixPos, 3));
-    const matrixMat = new THREE.PointsMaterial({
-        size: isMobile ? 0.04 : 0.03,
-        color: 0x00ff66, transparent: true, opacity: 0.5
-    });
-    const matrixRain = new THREE.Points(matrixGeo, matrixMat);
-    scene.add(matrixRain);
-
-    // --- E. Hex Grid Floor ---
-    const hexFloorPos = new Float32Array(CFG.hexFloorCount * 3);
-    for (let i = 0; i < CFG.hexFloorCount; i++) {
-        hexFloorPos[i * 3]     = (Math.random() - 0.5) * 24;
-        hexFloorPos[i * 3 + 1] = -4 + Math.random() * 0.5;
-        hexFloorPos[i * 3 + 2] = (Math.random() - 0.5) * 16 - 3;
-    }
-    const hexFloorGeo = new THREE.BufferGeometry();
-    hexFloorGeo.setAttribute('position', new THREE.BufferAttribute(hexFloorPos, 3));
-    const hexFloorMat = new THREE.PointsMaterial({
-        size: isMobile ? 0.03 : 0.02,
-        color: 0x003366, transparent: true, opacity: 0.4
-    });
-    const hexFloor = new THREE.Points(hexFloorGeo, hexFloorMat);
-    scene.add(hexFloor);
-
-    // --- F. Data Stream Particles ---
-    const dataPos = new Float32Array(CFG.dataCount * 3);
-    const dataSpeeds = new Float32Array(CFG.dataCount);
-    for (let i = 0; i < CFG.dataCount; i++) {
-        dataPos[i * 3]     = (Math.random() - 0.5) * 14;
-        dataPos[i * 3 + 1] = (Math.random() - 0.5) * 14;
-        dataPos[i * 3 + 2] = (Math.random() - 0.5) * 10 - 2;
-        dataSpeeds[i] = 0.005 + Math.random() * 0.01;
-    }
-    const dataGeo = new THREE.BufferGeometry();
-    dataGeo.setAttribute('position', new THREE.BufferAttribute(dataPos, 3));
-    const dataMat = new THREE.PointsMaterial({
-        size: isMobile ? 0.03 : 0.025,
-        color: 0x0088ff, transparent: true, opacity: 0.3
-    });
-    const dataParticles = new THREE.Points(dataGeo, dataMat);
-    scene.add(dataParticles);
-
-    // --- G. Threat Pulse Rings (desktop only or limited on mobile) ---
-    const pulseRings = [];
-    const pulseGroup = new THREE.Group();
-    if (CFG.enablePulse) scene.add(pulseGroup);
-
-    function createPulseRing() {
-        const geo = new THREE.RingGeometry(0.1, 0.12, 32);
-        const mat = new THREE.MeshBasicMaterial({
-            color: 0xff004c, transparent: true, opacity: 0.4, side: THREE.DoubleSide
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.position.set(
-            (Math.random() - 0.5) * 6,
-            (Math.random() - 0.5) * 4,
-            (Math.random() - 0.5) * 4 - 2
+      // --- pointer halo (fine pointers only) -------------------------------
+      if (pointer.active) {
+        var g = ctx.createRadialGradient(
+          pointer.x, pointer.y, 0, pointer.x, pointer.y, 190
         );
-        mesh.userData = { age: 0, maxAge: 80 + Math.random() * 60 };
-        pulseGroup.add(mesh);
-        pulseRings.push(mesh);
+        g.addColorStop(0, "rgba(0, 255, 204, 0.055)");
+        g.addColorStop(1, "rgba(0, 255, 204, 0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(pointer.x - 190, pointer.y - 190, 380, 380);
+      }
     }
 
-    // =============================
-    // 6. Scroll-Driven 3D Animations
-    // =============================
-    gsap.to(shieldGroup.rotation, {
-        y: Math.PI * 2, x: Math.PI * 0.4, ease: "none",
-        scrollTrigger: {
-            trigger: "#soc-section", scroller: scrollContainer,
-            start: "top bottom", end: "bottom top", scrub: 2
-        }
-    });
-
-    gsap.to(shieldGroup.position, {
-        x: 3, z: -2, ease: "none",
-        scrollTrigger: {
-            trigger: ".forensics", scroller: scrollContainer,
-            start: "top bottom", end: "bottom top", scrub: 2
-        }
-    });
-
-    gsap.to(shieldGroup.scale, {
-        x: 0.5, y: 0.5, z: 0.5, ease: "none",
-        scrollTrigger: {
-            trigger: ".forensics", scroller: scrollContainer,
-            start: "top bottom", end: "bottom top", scrub: 2
-        }
-    });
-
-    gsap.to(networkGroup.rotation, {
-        y: Math.PI * 0.3, ease: "none",
-        scrollTrigger: {
-            trigger: "#soc-section", scroller: scrollContainer,
-            start: "top bottom", end: "bottom top", scrub: 3
-        }
-    });
-
-    if (!isMobile) {
-        gsap.to(camera.position, {
-            x: -1, y: 0.5, ease: "none",
-            scrollTrigger: {
-                trigger: ".forensics", scroller: scrollContainer,
-                start: "top bottom", end: "bottom top", scrub: 2
-            }
-        });
+    function start() {
+      if (running) return;
+      running = true;
+      rafId = requestAnimationFrame(step);
     }
 
-    gsap.to(matrixMat, {
-        opacity: 0.8, ease: "none",
-        scrollTrigger: {
-            trigger: ".links", scroller: scrollContainer,
-            start: "top bottom", end: "top center", scrub: 1
-        }
-    });
-
-    // =============================
-    // 7. Section Reveal Animations
-    // =============================
-    gsap.from("#soc-section .glass-card", {
-        y: 80, opacity: 0,
-        scrollTrigger: {
-            trigger: "#soc-section", scroller: scrollContainer,
-            start: "top 85%", end: "top 45%", scrub: 1
-        }
-    });
-
-    gsap.from(".forensics .glass-card", {
-        y: 80, opacity: 0,
-        scrollTrigger: {
-            trigger: ".forensics", scroller: scrollContainer,
-            start: "top 85%", end: "top 45%", scrub: 1
-        }
-    });
-
-    gsap.from(".links .glass-card", {
-        y: 80, opacity: 0,
-        scrollTrigger: {
-            trigger: ".links", scroller: scrollContainer,
-            start: "top 85%", end: "top 50%", scrub: 1
-        }
-    });
-
-    // =============================
-    // 8. Render Loop
-    // =============================
-    const clock = new THREE.Clock();
-    let pulseTimer = 0;
-    let frameSkip = 0;
-
-    function tick() {
-        const t = clock.getElapsedTime();
-
-        // --- Mouse parallax (desktop) ---
-        if (CFG.enableMouseParallax) {
-            mouse.x += (mouse.targetX - mouse.x) * 0.03;
-            mouse.y += (mouse.targetY - mouse.y) * 0.03;
-            shieldGroup.rotation.y += mouse.x * 0.002;
-            shieldGroup.rotation.x += mouse.y * 0.001;
-        }
-
-        // --- Shield idle rotation ---
-        shield.rotation.y += 0.001;
-        shield.rotation.x += 0.0003;
-        midShield.rotation.y -= 0.0015;
-        midShield.rotation.z += 0.0005;
-        core.rotation.y += 0.004;
-        core.rotation.x += 0.002;
-
-        // --- Scanning rings ---
-        ring1.rotation.z = t * 0.22;
-        ring2.rotation.z = -t * 0.15;
-        ring2.rotation.y = t * 0.1;
-        if (!isMobile && ring3) {
-            ring3.rotation.z = t * 0.12;
-            ring3.rotation.x = Math.PI / 4 + Math.sin(t * 0.2) * 0.1;
-        }
-
-        // --- Pulse opacity ---
-        shieldMat.opacity = 0.08 + Math.sin(t * 1.0) * 0.03;
-        coreMat.opacity = 0.12 + Math.sin(t * 2.0) * 0.05;
-        ringMat1.opacity = 0.15 + Math.sin(t * 1.5) * 0.06;
-
-        // --- Matrix code rain ---
-        const mPos = matrixGeo.attributes.position.array;
-        for (let i = 0; i < CFG.matrixCount; i++) {
-            mPos[i * 3 + 1] -= matrixSpeeds[i];
-            if (mPos[i * 3 + 1] < -8) {
-                mPos[i * 3 + 1] = 8;
-                mPos[i * 3] = (Math.random() - 0.5) * 20;
-            }
-        }
-        matrixGeo.attributes.position.needsUpdate = true;
-
-        // --- Data particles rise ---
-        const dPos = dataGeo.attributes.position.array;
-        for (let i = 0; i < CFG.dataCount; i++) {
-            dPos[i * 3 + 1] += dataSpeeds[i];
-            if (dPos[i * 3 + 1] > 7) {
-                dPos[i * 3 + 1] = -7;
-                dPos[i * 3] = (Math.random() - 0.5) * 14;
-            }
-        }
-        dataGeo.attributes.position.needsUpdate = true;
-
-        // --- Hex floor wave (every other frame on mobile) ---
-        frameSkip++;
-        if (!isMobile || frameSkip % 2 === 0) {
-            const hPos = hexFloorGeo.attributes.position.array;
-            for (let i = 0; i < CFG.hexFloorCount; i++) {
-                hPos[i * 3 + 1] = -4 + Math.sin(t * 0.5 + hPos[i * 3] * 0.3) * 0.15;
-            }
-            hexFloorGeo.attributes.position.needsUpdate = true;
-        }
-
-        // --- Threat pulse rings ---
-        if (CFG.enablePulse) {
-            pulseTimer++;
-            if (pulseTimer % 90 === 0 && pulseRings.length < (isMobile ? 3 : 8)) {
-                createPulseRing();
-            }
-            for (let i = pulseRings.length - 1; i >= 0; i--) {
-                const r = pulseRings[i];
-                r.userData.age++;
-                const progress = r.userData.age / r.userData.maxAge;
-                r.scale.set(1 + progress * 12, 1 + progress * 12, 1);
-                r.material.opacity = 0.35 * (1 - progress);
-                if (r.userData.age >= r.userData.maxAge) {
-                    pulseGroup.remove(r);
-                    r.geometry.dispose();
-                    r.material.dispose();
-                    pulseRings.splice(i, 1);
-                }
-            }
-        }
-
-        // --- Network node pulse (skip on low-end) ---
-        if (!isLowEnd) {
-            networkGroup.children.forEach((child, idx) => {
-                if (child.isMesh) {
-                    child.material.opacity = 0.5 + Math.sin(t * 2 + idx * 0.5) * 0.3;
-                }
-            });
-        }
-
-        renderer.render(scene, camera);
-        requestAnimationFrame(tick);
+    function stop() {
+      running = false;
+      cancelAnimationFrame(rafId);
     }
-    tick();
 
-    // =============================
-    // 9. Resize Handler
-    // =============================
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            locoScroll.update();
-        }, 150);
+    resize();
+
+    var resizeTimer;
+    window.addEventListener("resize", function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () {
+        resize();
+        seed();
+      }, 180);
+    }, { passive: true });
+
+    if (!coarse) {
+      pointer.active = true;
+      pointer.x = pointer.tx = window.innerWidth / 2;
+      pointer.y = pointer.ty = window.innerHeight / 2;
+      window.addEventListener("pointermove", function (e) {
+        pointer.tx = e.clientX;
+        pointer.ty = e.clientY;
+      }, { passive: true });
+    }
+
+    // Only animate while the canvas is actually on screen and the tab is
+    // focused. This is what keeps the page from cooking a laptop battery.
+    var onScreen = true;
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        onScreen = entries[0].isIntersecting;
+        sync();
+      }).observe(canvas);
+    }
+    document.addEventListener("visibilitychange", sync);
+
+    function sync() {
+      if (onScreen && !document.hidden) start(); else stop();
+    }
+
+    sync();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 2. Terminal typing effect
+   * ------------------------------------------------------------------ */
+  function typeLine() {
+    var el = document.getElementById("hero-typing");
+    if (!el) return;
+
+    // The element ships with its text already in it, so the line is readable
+    // with JavaScript disabled. Clear it only once we know we can animate.
+    var text = el.getAttribute("data-text") || el.textContent || "";
+    if (reduceMotion) { el.textContent = text; return; }
+    el.textContent = "";
+
+    var i = 0, last = 0;
+    // rAF rather than setInterval so the effect pauses with the tab and never
+    // queues up a backlog of ticks.
+    function tick(now) {
+      if (now - last >= 55) {
+        last = now;
+        el.textContent = text.slice(0, ++i);
+      }
+      if (i < text.length) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 3. Scroll reveals — CSS transitions toggled by IntersectionObserver
+   * ------------------------------------------------------------------ */
+  function reveals() {
+    // Tell the head-script failsafe that we are alive, so it does not strip the
+    // `js` class out from under us.
+    document.documentElement.setAttribute("data-reveals-ready", "");
+
+    var targets = document.querySelectorAll("[data-reveal]");
+    if (!targets.length) return;
+
+    if (reduceMotion || !("IntersectionObserver" in window)) {
+      for (var i = 0; i < targets.length; i++) targets[i].classList.add("is-visible");
+      return;
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add("is-visible");
+        io.unobserve(entry.target); // one-shot: no work after the first pass
+      });
+    }, { rootMargin: "0px 0px -12% 0px", threshold: 0.08 });
+
+    targets.forEach(function (el) { io.observe(el); });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 4. Section nav + scrollspy
+   * ------------------------------------------------------------------ */
+  function scrollspy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".nav-link"));
+    if (!links.length || !("IntersectionObserver" in window)) return;
+
+    // Both the desktop rail and the mobile tab bar link to the same sections,
+    // so each id maps to a list of links.
+    var byId = {};
+    links.forEach(function (a) {
+      var id = (a.getAttribute("href") || "").slice(1);
+      if (!id) return;
+      (byId[id] || (byId[id] = [])).push(a);
     });
 
-    // =============================
-    // 10. Final ScrollTrigger Refresh
-    // =============================
-    ScrollTrigger.addEventListener("refresh", () => locoScroll.update());
-    ScrollTrigger.refresh();
+    function activate(id) {
+      links.forEach(function (l) {
+        l.classList.remove("is-active");
+        l.removeAttribute("aria-current");
+      });
+      (byId[id] || []).forEach(function (l) {
+        l.classList.add("is-active");
+        l.setAttribute("aria-current", "true");
+      });
+    }
 
+    // Track every section's ratio and pick the most-visible one, so short
+    // sections at the top and bottom of the page still win when they should.
+    var ratios = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { ratios[e.target.id] = e.intersectionRatio; });
+
+      var best = null, bestRatio = 0;
+      Object.keys(ratios).forEach(function (id) {
+        if (ratios[id] > bestRatio) { bestRatio = ratios[id]; best = id; }
+      });
+      if (best) activate(best);
+    }, { threshold: [0, 0.15, 0.35, 0.6, 0.85, 1] });
+
+    Object.keys(byId).forEach(function (id) {
+      var section = document.getElementById(id);
+      if (section) io.observe(section);
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 5. Boot
+   * ------------------------------------------------------------------ */
+  function init() {
+    // The page is fully readable before any of this runs; each piece is
+    // isolated so one failure cannot take the others down.
+    [background, typeLine, reveals, scrollspy].forEach(function (fn) {
+      try { fn(); } catch (err) { console.error("[oph]", fn.name, err); }
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
 })();
