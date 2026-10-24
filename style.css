@@ -344,7 +344,7 @@ h2 {
   grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
   gap: 0.9rem;
 }
-.certs a, .certs .cert-static {
+.certs a {
   display: grid;
   gap: 0.3rem;
   align-content: start;
